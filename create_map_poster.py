@@ -213,7 +213,7 @@ def get_coordinates(city, country):
     else:
         raise ValueError(f"Could not find coordinates for {city}, {country}")
 
-def create_poster(city, country, point, dist, output_file):
+def create_poster(city, country, point, dist, output_file, display_name=None):
     print(f"\nGenerating map for {city}, {country}...")
     
     # Progress bar for data fetching
@@ -286,7 +286,9 @@ def create_poster(city, country, point, dist, output_file):
         font_sub = FontProperties(family='monospace', weight='normal', size=22)
         font_coords = FontProperties(family='monospace', size=14)
     
-    spaced_city = "  ".join(list(city.upper()))
+    # Use display_name if provided, otherwise use city name
+    poster_name = display_name if display_name else city
+    spaced_city = "  ".join(list(poster_name.upper()))
 
     # --- BOTTOM TEXT ---
     ax.text(0.5, 0.14, spaced_city, transform=ax.transAxes,
@@ -416,8 +418,9 @@ Examples:
         """
     )
     
-    parser.add_argument('--city', '-c', type=str, help='City name')
+    parser.add_argument('--city', '-c', type=str, help='City name (used for geocoding)')
     parser.add_argument('--country', '-C', type=str, help='Country name')
+    parser.add_argument('--name', '-n', type=str, help='Display name on poster (defaults to city name)')
     parser.add_argument('--theme', '-t', type=str, default='feature_based', help='Theme name (default: feature_based)')
     parser.add_argument('--distance', '-d', type=int, default=29000, help='Map radius in meters (default: 29000)')
     parser.add_argument('--list-themes', action='store_true', help='List all available themes')
@@ -457,8 +460,10 @@ Examples:
     # Get coordinates and generate poster
     try:
         coords = get_coordinates(args.city, args.country)
-        output_file = generate_output_filename(args.city, args.theme)
-        create_poster(args.city, args.country, coords, args.distance, output_file)
+        # Use display name for filename if provided
+        filename_city = args.name if args.name else args.city
+        output_file = generate_output_filename(filename_city, args.theme)
+        create_poster(args.city, args.country, coords, args.distance, output_file, args.name)
         
         print("\n" + "=" * 50)
         print("✓ Poster generation complete!")

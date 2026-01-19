@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Map Poster Generator</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <h1>Map Poster Generator</h1>
+            <p class="subtitle">Create beautiful street map posters for any city</p>
+        </header>
+
+        <!-- Input Form -->
+        <section class="form-section">
+            <h2>Location</h2>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="city">City Name</label>
+                    <input type="text" id="city" placeholder="e.g., Venice" required>
+                </div>
+                <div class="form-group">
+                    <label for="country">Country</label>
+                    <input type="text" id="country" placeholder="e.g., Italy" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="display-name">Display Name (optional)</label>
+                <input type="text" id="display-name" placeholder="Custom name to show on poster">
+                <span class="hint">Leave blank to use city name</span>
+            </div>
+        </section>
+
+        <!-- Theme Selector -->
+        <section class="theme-section">
+            <h2>Theme</h2>
+            <div id="theme-grid" class="theme-grid">
+                <!-- Themes loaded dynamically -->
+            </div>
+        </section>
+
+        <!-- Distance Control -->
+        <section class="distance-section">
+            <h2>Map Size</h2>
+            <div class="distance-control">
+                <div class="distance-presets">
+                    <button type="button" class="preset-btn" data-distance="5000">Small (5km)</button>
+                    <button type="button" class="preset-btn active" data-distance="10000">Medium (10km)</button>
+                    <button type="button" class="preset-btn" data-distance="20000">Large (20km)</button>
+                </div>
+                <div class="slider-container">
+                    <input type="range" id="distance-slider" min="4000" max="30000" value="10000" step="1000">
+                    <div class="slider-value"><span id="distance-value">10,000</span> meters</div>
+                </div>
+                <div class="distance-guide">
+                    <p><strong>Small (4-6km):</strong> Dense cities, canal networks (Venice, Amsterdam old center)</p>
+                    <p><strong>Medium (8-12km):</strong> Downtown focus, city center (Paris, Barcelona)</p>
+                    <p><strong>Large (15-25km):</strong> Full metro view, large cities (Tokyo, Mumbai)</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Generate Button -->
+        <section class="generate-section">
+            <button id="generate-btn" class="generate-btn">
+                <span class="btn-text">Generate Poster</span>
+            </button>
+        </section>
+
+        <!-- Status/Progress Area -->
+        <section id="status-section" class="status-section hidden">
+            <div class="status-content">
+                <div class="spinner"></div>
+                <p id="status-text">Starting...</p>
+                <div class="progress-bar">
+                    <div id="progress-fill" class="progress-fill"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Result Area -->
+        <section id="result-section" class="result-section hidden">
+            <h2>Your Poster</h2>
+            <div class="result-content">
+                <img id="result-image" src="" alt="Generated map poster">
+                <div class="result-actions">
+                    <a id="download-btn" href="" download class="btn btn-primary">Download Poster</a>
+                    <button id="new-poster-btn" class="btn btn-secondary">Generate Another</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer>
+            <p>Data &copy; OpenStreetMap contributors</p>
+        </footer>
+    </div>
+
+    <script>
+        // State
+        let selectedTheme = 'feature_based';
+        let currentJobId = null;
+        let statusPollInterval = null;
+
+        // DOM elements
+        const cityInput = document.getElementById('city');
+        const countryInput = document.getElementById('country');
+        const displayNameInput = document.getElementById('display-name');
+        const distanceSlider = document.getElementById('distance-slider');
+        const distanceValue = document.getElementById('distance-value');
+        const generateBtn = document.getElementById('generate-btn');
+        const statusSection = document.getElementById('status-section');
+        const statusText = document.getElementById('status-text');
+        const progressFill = document.getElementById('progress-fill');
+        const resultSection = document.getElementById('result-section');
+        const resultImage = document.getElementById('result-image');
+        const downloadBtn = document.getElementById('download-btn');
+        const newPosterBtn = document.getElementById('new-poster-btn');
+        const themeGrid = document.getElementById('theme-grid');
+
+        // Load themes on page load
+        async function loadThemes() {
+            try {
+                const response = await fetch('/api/themes');
+                const themes = await response.json();
+                renderThemes(themes);
+            } catch (error) {
+                console.error('Failed to load themes:', error);
+                themeGrid.innerHTML = '<p class="error">Failed to load themes</p>';
+            }
+        }
+
+        function renderThemes(themes) {
+            themeGrid.innerHTML = themes.map(theme => `
+                <div class="theme-card ${theme.id === selectedTheme ? 'selected' : ''}"
+                     data-theme="${theme.id}"
+                     style="background-color: ${theme.bg}">
+                    <div class="theme-colors">
+                        <div class="color-swatch road-color" style="background-color: ${theme.road_primary}" title="Primary roads"></div>
+                        <div class="color-swatch road-color" style="background-color: ${theme.road_secondary}" title="Secondary roads"></div>
+                    </div>
+                    <span class="theme-name" style="color: ${theme.text}">${theme.name}</span>
+                </div>
+            `).join('');
+
+            // Add click handlers
+            document.querySelectorAll('.theme-card').forEach(card => {
+                card.addEventListener('click', () => selectTheme(card.dataset.theme));
+            });
+        }
+
+        function selectTheme(themeId) {
+            selectedTheme = themeId;
+            document.querySelectorAll('.theme-card').forEach(card => {
+                card.classList.toggle('selected', card.dataset.theme === themeId);
+            });
+        }
+
+        // Distance slider
+        distanceSlider.addEventListener('input', (e) => {
+            const value = parseInt(e.target.value);
+            distanceValue.textContent = value.toLocaleString();
+            updatePresetButtons(value);
+        });
+
+        function updatePresetButtons(value) {
+            document.querySelectorAll('.preset-btn').forEach(btn => {
+                const preset = parseInt(btn.dataset.distance);
+                btn.classList.toggle('active', Math.abs(value - preset) < 1000);
+            });
+        }
+
+        // Preset buttons
+        document.querySelectorAll('.preset-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const distance = parseInt(btn.dataset.distance);
+                distanceSlider.value = distance;
+                distanceValue.textContent = distance.toLocaleString();
+                updatePresetButtons(distance);
+            });
+        });
+
+        // Generate poster
+        generateBtn.addEventListener('click', startGeneration);
+
+        async function startGeneration() {
+            const city = cityInput.value.trim();
+            const country = countryInput.value.trim();
+
+            if (!city || !country) {
+                alert('Please enter both city and country');
+                return;
+            }
+
+            // Disable button and show status
+            generateBtn.disabled = true;
+            generateBtn.querySelector('.btn-text').textContent = 'Generating...';
+            statusSection.classList.remove('hidden');
+            resultSection.classList.add('hidden');
+            statusText.textContent = 'Starting...';
+            progressFill.style.width = '0%';
+
+            try {
+                const response = await fetch('/api/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        city: city,
+                        country: country,
+                        theme: selectedTheme,
+                        distance: parseInt(distanceSlider.value),
+                        display_name: displayNameInput.value.trim()
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Generation failed');
+                }
+
+                currentJobId = data.job_id;
+                startStatusPolling();
+
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        function startStatusPolling() {
+            statusPollInterval = setInterval(checkStatus, 1000);
+        }
+
+        function stopStatusPolling() {
+            if (statusPollInterval) {
+                clearInterval(statusPollInterval);
+                statusPollInterval = null;
+            }
+        }
+
+        async function checkStatus() {
+            if (!currentJobId) return;
+
+            try {
+                const response = await fetch(`/api/status/${currentJobId}`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to check status');
+                }
+
+                updateStatusDisplay(data);
+
+                if (data.status === 'complete') {
+                    stopStatusPolling();
+                    showResult(data.result);
+                } else if (data.status === 'error') {
+                    stopStatusPolling();
+                    showError(data.error || 'Generation failed');
+                }
+
+            } catch (error) {
+                stopStatusPolling();
+                showError(error.message);
+            }
+        }
+
+        function updateStatusDisplay(data) {
+            const statusMessages = {
+                'pending': 'Starting...',
+                'geocoding': 'Looking up coordinates...',
+                'loading_theme': 'Loading theme...',
+                'downloading': 'Downloading map data...',
+                'rendering': 'Rendering poster (this may take a while)...',
+                'complete': 'Complete!',
+                'error': 'Error occurred'
+            };
+
+            statusText.textContent = statusMessages[data.status] || data.status;
+            progressFill.style.width = `${data.progress || 0}%`;
+        }
+
+        function showResult(filename) {
+            const posterUrl = `/posters/${filename}`;
+            resultImage.src = posterUrl;
+            downloadBtn.href = posterUrl;
+            downloadBtn.download = filename;
+
+            statusSection.classList.add('hidden');
+            resultSection.classList.remove('hidden');
+
+            generateBtn.disabled = false;
+            generateBtn.querySelector('.btn-text').textContent = 'Generate Poster';
+        }
+
+        function showError(message) {
+            alert('Error: ' + message);
+            statusSection.classList.add('hidden');
+            generateBtn.disabled = false;
+            generateBtn.querySelector('.btn-text').textContent = 'Generate Poster';
+        }
+
+        // New poster button
+        newPosterBtn.addEventListener('click', () => {
+            resultSection.classList.add('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+
+        // Initialize
+        loadThemes();
+    </script>
+</body>
+</html>
