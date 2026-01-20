@@ -40,6 +40,7 @@ python create_map_poster.py --city <city> --country <country> [options]
 | `--country` | `-C` | Country name | required |
 | `--theme` | `-t` | Theme name | feature_based |
 | `--distance` | `-d` | Map radius in meters | 29000 |
+| `--marker` | `-m` | Add marker at "lat,lon" (repeatable, max 12) | |
 | `--list-themes` | | List all available themes | |
 
 ### Examples
@@ -71,6 +72,11 @@ python create_map_poster.py -c "Mumbai" -C "India" -t contrast_zones -d 18000 # 
 # River cities
 python create_map_poster.py -c "London" -C "UK" -t noir -d 15000              # Thames curves
 python create_map_poster.py -c "Budapest" -C "Hungary" -t copper_patina -d 8000  # Danube split
+
+# Custom markers (points of interest)
+python create_map_poster.py -c "New York" -C "USA" -t noir -d 12000 \
+  --marker "40.7484,-73.9857" \
+  --marker "40.7580,-73.9855"
 
 # List available themes
 python create_map_poster.py --list-themes
@@ -137,11 +143,57 @@ Create a JSON file in `themes/` directory:
 }
 ```
 
+## Web GUI
+
+A browser-based interface is also available:
+
+```bash
+python web_app.py
+```
+
+Open http://localhost:5001 in your browser. The web interface provides:
+- City/country input with optional display name
+- Visual theme selector with color previews
+- Distance slider with preset buttons
+- Custom markers input (add up to 12 points of interest)
+- Real-time generation progress
+
+## Custom Markers
+
+Add up to 12 coordinate markers to highlight points of interest on your poster. Markers are theme-aware, using colors that complement the selected theme.
+
+**CLI:**
+```bash
+python create_map_poster.py -c "Paris" -C "France" -t noir \
+  --marker "48.8584,2.2945" \
+  --marker "48.8606,2.3376"
+```
+
+**Web API:**
+```json
+{
+  "city": "Paris",
+  "country": "France",
+  "theme": "noir",
+  "markers": [
+    {"lat": 48.8584, "lon": 2.2945},
+    {"lat": 48.8606, "lon": 2.3376}
+  ]
+}
+```
+
+Markers appear as filled dots with a subtle outline, positioned above roads but below the gradient overlays and text.
+
 ## Project Structure
 
 ```
 map_poster/
-├── create_map_poster.py          # Main script
+├── create_map_poster.py  # Main CLI script
+├── web_app.py            # Flask web application
+├── templates/            # HTML templates
+│   └── index.html
+├── static/               # CSS styles
+│   └── style.css
 ├── themes/               # Theme JSON files
 ├── fonts/                # Roboto font files
 ├── posters/              # Generated posters
@@ -177,12 +229,15 @@ Quick reference for contributors who want to extend or modify the script.
 | `get_edge_widths_by_type()` | Road width by importance | Adjusting line weights |
 | `create_gradient_fade()` | Top/bottom fade effect | Modifying gradient overlay |
 | `load_theme()` | JSON theme → dict | Adding new theme properties |
+| `validate_markers()` | Validate & limit marker list | Changing marker constraints |
+| `parse_marker()` | Parse "lat,lon" string | Changing CLI marker format |
 
 ### Rendering Layers (z-order)
 
 ```
 z=11  Text labels (city, country, coords)
 z=10  Gradient fades (top & bottom)
+z=5   Custom markers (optional)
 z=3   Roads (via ox.plot_graph)
 z=2   Parks (green polygons)
 z=1   Water (blue polygons)
