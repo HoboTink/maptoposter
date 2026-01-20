@@ -42,6 +42,27 @@
             </div>
         </section>
 
+        <!-- Custom Markers -->
+        <section class="markers-section">
+            <h2>Custom Markers <span class="optional-label">(optional)</span></h2>
+            <p class="section-hint">Add up to 12 points of interest to highlight on your map</p>
+            <div class="marker-input-row">
+                <div class="form-group">
+                    <label for="marker-lat">Latitude</label>
+                    <input type="number" id="marker-lat" placeholder="e.g., 40.7484" step="any" min="-90" max="90">
+                </div>
+                <div class="form-group">
+                    <label for="marker-lon">Longitude</label>
+                    <input type="number" id="marker-lon" placeholder="e.g., -73.9857" step="any" min="-180" max="180">
+                </div>
+                <button type="button" id="add-marker-btn" class="add-marker-btn">Add Marker</button>
+            </div>
+            <div id="markers-list" class="markers-list">
+                <!-- Markers added dynamically -->
+            </div>
+            <p id="markers-count" class="markers-count hidden">0/12 markers</p>
+        </section>
+
         <!-- Distance Control -->
         <section class="distance-section">
             <h2>Map Size</h2>
@@ -104,12 +125,19 @@
         let selectedTheme = 'feature_based';
         let currentJobId = null;
         let statusPollInterval = null;
+        let markers = [];
+        const MAX_MARKERS = 12;
 
         // DOM elements
         const cityInput = document.getElementById('city');
         const countryInput = document.getElementById('country');
         const displayNameInput = document.getElementById('display-name');
         const distanceSlider = document.getElementById('distance-slider');
+        const markerLatInput = document.getElementById('marker-lat');
+        const markerLonInput = document.getElementById('marker-lon');
+        const addMarkerBtn = document.getElementById('add-marker-btn');
+        const markersList = document.getElementById('markers-list');
+        const markersCount = document.getElementById('markers-count');
         const distanceValue = document.getElementById('distance-value');
         const generateBtn = document.getElementById('generate-btn');
         const statusSection = document.getElementById('status-section');
@@ -157,6 +185,71 @@
             document.querySelectorAll('.theme-card').forEach(card => {
                 card.classList.toggle('selected', card.dataset.theme === themeId);
             });
+        }
+
+        // Marker management
+        addMarkerBtn.addEventListener('click', addMarker);
+
+        // Allow Enter key to add marker
+        markerLatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addMarker();
+        });
+        markerLonInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addMarker();
+        });
+
+        function addMarker() {
+            const lat = parseFloat(markerLatInput.value);
+            const lon = parseFloat(markerLonInput.value);
+
+            // Validate
+            if (isNaN(lat) || isNaN(lon)) {
+                alert('Please enter valid latitude and longitude values');
+                return;
+            }
+            if (lat < -90 || lat > 90) {
+                alert('Latitude must be between -90 and 90');
+                return;
+            }
+            if (lon < -180 || lon > 180) {
+                alert('Longitude must be between -180 and 180');
+                return;
+            }
+            if (markers.length >= MAX_MARKERS) {
+                alert(`Maximum ${MAX_MARKERS} markers allowed`);
+                return;
+            }
+
+            markers.push({ lat, lon });
+            renderMarkers();
+
+            // Clear inputs
+            markerLatInput.value = '';
+            markerLonInput.value = '';
+            markerLatInput.focus();
+        }
+
+        function removeMarker(index) {
+            markers.splice(index, 1);
+            renderMarkers();
+        }
+
+        function renderMarkers() {
+            if (markers.length === 0) {
+                markersList.innerHTML = '';
+                markersCount.classList.add('hidden');
+                return;
+            }
+
+            markersCount.textContent = `${markers.length}/${MAX_MARKERS} markers`;
+            markersCount.classList.remove('hidden');
+
+            markersList.innerHTML = markers.map((marker, index) => `
+                <div class="marker-item">
+                    <span class="marker-coords">${marker.lat.toFixed(4)}, ${marker.lon.toFixed(4)}</span>
+                    <button type="button" class="remove-marker-btn" onclick="removeMarker(${index})" title="Remove marker">&times;</button>
+                </div>
+            `).join('');
         }
 
         // Distance slider
@@ -212,7 +305,8 @@
                         country: country,
                         theme: selectedTheme,
                         distance: parseInt(distanceSlider.value),
-                        display_name: displayNameInput.value.trim()
+                        display_name: displayNameInput.value.trim(),
+                        markers: markers
                     })
                 });
 

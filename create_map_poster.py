@@ -193,6 +193,73 @@ def get_edge_widths_by_type(G):
     
     return edge_widths
 
+def parse_marker(marker_str):
+    """
+    Parse a marker string in format "lat,lon" and validate coordinates.
+    Returns (lat, lon) tuple or None if invalid.
+    """
+    try:
+        parts = marker_str.split(',')
+        if len(parts) != 2:
+            print(f"⚠ Invalid marker format: {marker_str} (expected lat,lon)")
+            return None
+
+        lat = float(parts[0].strip())
+        lon = float(parts[1].strip())
+
+        # Validate ranges
+        if lat < -90 or lat > 90:
+            print(f"⚠ Invalid latitude {lat} in marker (must be -90 to 90)")
+            return None
+        if lon < -180 or lon > 180:
+            print(f"⚠ Invalid longitude {lon} in marker (must be -180 to 180)")
+            return None
+
+        return (lat, lon)
+    except ValueError as e:
+        print(f"⚠ Invalid marker coordinates: {marker_str} ({e})")
+        return None
+
+
+def validate_markers(markers, max_markers=12):
+    """
+    Validate and limit markers list.
+    Returns list of valid (lat, lon) tuples.
+    """
+    if not markers:
+        return []
+
+    valid_markers = []
+    for marker in markers:
+        # Handle dict format (from web API) or tuple format (from CLI)
+        if isinstance(marker, dict):
+            lat = marker.get('lat')
+            lon = marker.get('lon')
+            if lat is None or lon is None:
+                print(f"⚠ Invalid marker dict: {marker}")
+                continue
+            try:
+                lat = float(lat)
+                lon = float(lon)
+                if lat < -90 or lat > 90 or lon < -180 or lon > 180:
+                    print(f"⚠ Marker coordinates out of range: {lat}, {lon}")
+                    continue
+                valid_markers.append((lat, lon))
+            except (ValueError, TypeError) as e:
+                print(f"⚠ Invalid marker coordinates: {marker} ({e})")
+                continue
+        elif isinstance(marker, (tuple, list)) and len(marker) == 2:
+            valid_markers.append((float(marker[0]), float(marker[1])))
+        else:
+            print(f"⚠ Invalid marker format: {marker}")
+
+    if len(valid_markers) > max_markers:
+        print(f"⚠ Too many markers ({len(valid_markers)}), limiting to {max_markers}")
+        valid_markers = valid_markers[:max_markers]
+
+    return valid_markers
+
+
 def get_coordinates(city, country):
     """
     Fetches coordinates for a given city and country using geopy.
@@ -213,7 +280,7 @@ def get_coordinates(city, country):
     else:
         raise ValueError(f"Could not find coordinates for {city}, {country}")
 
-def create_poster(city, country, point, dist, output_file, display_name=None):
+def create_poster(city, country, point, dist, output_file, display_name=None, markers=None):
     print(f"\nGenerating map for {city}, {country}...")
     
     # Progress bar for data fetching
@@ -268,8 +335,20 @@ def create_poster(city, country, point, dist, output_file, display_name=None):
         edge_linewidth=edge_widths,
         show=False, close=False
     )
-    
-    # Layer 3: Gradients (Top and Bottom)
+
+    # Layer 3: Custom markers (optional)
+    validated_markers = validate_markers(markers)
+    if validated_markers:
+        print(f"✓ Adding {len(validated_markers)} custom marker(s)")
+        lats = [m[0] for m in validated_markers]
+        lons = [m[1] for m in validated_markers]
+        marker_color = THEME.get('marker_color', THEME['road_motorway'])
+        outline_color = THEME['text']
+        ax.scatter(lons, lats, s=120, c=marker_color,
+                   edgecolors=outline_color, linewidths=0.8,
+                   zorder=5, alpha=0.95)
+
+    # Layer 4: Gradients (Top and Bottom)
     create_gradient_fade(ax, THEME['gradient_color'], location='bottom', zorder=10)
     create_gradient_fade(ax, THEME['gradient_color'], location='top', zorder=10)
     
@@ -369,7 +448,15 @@ Options:
   --country, -C     Country name (required)
   --theme, -t       Theme name (default: feature_based)
   --distance, -d    Map radius in meters (default: 29000)
+  --marker, -m      Add marker at "lat,lon" (can repeat up to 12 times)
   --list-themes     List all available themes
+
+Custom Markers:
+  # Add markers for points of interest
+  python create_map_poster.py -c "New York" -C "USA" -t noir \\
+    --marker "40.7484,-73.9857" \\
+    --marker "40.7580,-73.9855" \\
+    --marker "40.7614,-73.9776"
 
 Distance guide:
   4000-6000m   Small/dense cities (Venice, Amsterdam old center)
@@ -414,6 +501,7 @@ Examples:
   python create_map_poster.py --city "New York" --country "USA"
   python create_map_poster.py --city Tokyo --country Japan --theme midnight_blue
   python create_map_poster.py --city Paris --country France --theme noir --distance 15000
+  python create_map_poster.py --city NYC --country USA -m "40.7484,-73.9857" -m "40.7580,-73.9855"
   python create_map_poster.py --list-themes
         """
     )
@@ -424,7 +512,9 @@ Examples:
     parser.add_argument('--theme', '-t', type=str, default='feature_based', help='Theme name (default: feature_based)')
     parser.add_argument('--distance', '-d', type=int, default=29000, help='Map radius in meters (default: 29000)')
     parser.add_argument('--list-themes', action='store_true', help='List all available themes')
-    
+    parser.add_argument('--marker', '-m', action='append', type=str,
+                        help='Add a marker at "lat,lon" (can be repeated up to 12 times)')
+
     args = parser.parse_args()
     
     # If no arguments provided, show examples
@@ -457,13 +547,21 @@ Examples:
     # Load theme
     THEME = load_theme(args.theme)
     
+    # Parse markers from CLI arguments
+    markers = []
+    if args.marker:
+        for marker_str in args.marker:
+            parsed = parse_marker(marker_str)
+            if parsed:
+                markers.append(parsed)
+
     # Get coordinates and generate poster
     try:
         coords = get_coordinates(args.city, args.country)
         # Use display name for filename if provided
         filename_city = args.name if args.name else args.city
         output_file = generate_output_filename(filename_city, args.theme)
-        create_poster(args.city, args.country, coords, args.distance, output_file, args.name)
+        create_poster(args.city, args.country, coords, args.distance, output_file, args.name, markers=markers)
         
         print("\n" + "=" * 50)
         print("✓ Poster generation complete!")

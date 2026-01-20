@@ -39,7 +39,7 @@ def update_job_status(job_id, status, progress=None, result=None, error=None):
                 jobs[job_id]['error'] = error
 
 
-def run_generation(job_id, city, country, theme_name, distance, display_name):
+def run_generation(job_id, city, country, theme_name, distance, display_name, markers=None):
     """
     Background task to generate a poster.
     Updates job status as it progresses.
@@ -62,7 +62,7 @@ def run_generation(job_id, city, country, theme_name, distance, display_name):
 
         # Step 4: Rendering
         update_job_status(job_id, 'rendering', progress=50)
-        poster.create_poster(city, country, coords, distance, output_file, display_name)
+        poster.create_poster(city, country, coords, distance, output_file, display_name, markers=markers)
 
         # Step 5: Complete
         # Extract just the filename from the path
@@ -136,6 +136,34 @@ def generate():
     except ValueError:
         return jsonify({'error': 'Invalid distance value'}), 400
 
+    # Extract and validate markers (optional)
+    markers = data.get('markers', [])
+    if markers:
+        if not isinstance(markers, list):
+            return jsonify({'error': 'Markers must be an array'}), 400
+        if len(markers) > 12:
+            return jsonify({'error': 'Maximum 12 markers allowed'}), 400
+        # Validate each marker format
+        validated_markers = []
+        for i, marker in enumerate(markers):
+            if not isinstance(marker, dict):
+                return jsonify({'error': f'Marker {i+1} must be an object with lat and lon'}), 400
+            lat = marker.get('lat')
+            lon = marker.get('lon')
+            if lat is None or lon is None:
+                return jsonify({'error': f'Marker {i+1} missing lat or lon'}), 400
+            try:
+                lat = float(lat)
+                lon = float(lon)
+            except (ValueError, TypeError):
+                return jsonify({'error': f'Marker {i+1} has invalid coordinates'}), 400
+            if lat < -90 or lat > 90:
+                return jsonify({'error': f'Marker {i+1} latitude must be between -90 and 90'}), 400
+            if lon < -180 or lon > 180:
+                return jsonify({'error': f'Marker {i+1} longitude must be between -180 and 180'}), 400
+            validated_markers.append({'lat': lat, 'lon': lon})
+        markers = validated_markers
+
     # Create job
     job_id = str(uuid.uuid4())
     with jobs_lock:
@@ -149,14 +177,15 @@ def generate():
                 'country': country,
                 'theme': theme_name,
                 'distance': distance,
-                'display_name': display_name
+                'display_name': display_name,
+                'markers': markers
             }
         }
 
     # Start background thread
     thread = threading.Thread(
         target=run_generation,
-        args=(job_id, city, country, theme_name, distance, display_name)
+        args=(job_id, city, country, theme_name, distance, display_name, markers)
     )
     thread.daemon = True
     thread.start()
